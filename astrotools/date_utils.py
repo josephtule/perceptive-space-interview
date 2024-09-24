@@ -1,4 +1,6 @@
 import math
+import numpy as np
+
 
 def CalUTtoJD(Y, M, D, UT):
     """
@@ -32,9 +34,45 @@ def CalUTtoJD(Y, M, D, UT):
     # Calculate the Julian date
     JD = (math.floor(365.25 * y) +
           math.floor(30.6001 * (m + 1)) +
-          B + 1720996.5 + D + UT / 24)
+          B + 1720996.5 + D + UT / 24.)
 
     return JD
+
+
+def JDtoCalUT(JD):
+    """
+    Converts a Julian Date to year, month, day, and UT (Universal Time).
+
+    Parameters:
+        JD (float): Julian Date
+
+    Returns:
+        tuple: (Y, M, D, UT)
+            Y (int): Year
+            M (int): Month
+            D (int): Day
+            UT (float): UT time in hours
+    """
+    
+    a = math.floor(JD + 0.5)
+    b = math.floor((a - 1867216.25) / 36524.25)
+    
+    if a < 2299161:
+        c = a + 1524
+    else:
+        c = a + b - math.floor(b / 4) + 1525
+    
+    d = math.floor((c - 122.1) / 365.25)
+    e = math.floor(365.25 * d)
+    f = math.floor((c - e) / 30.6001)
+    
+    D = c - e - math.floor(30.6001 * f) + math.floor(JD + 0.5 - a)
+    M = f - 1 - 12 * math.floor(f / 14)
+    Y = d - 4715 - math.floor((7 + M) / 10)
+    
+    UT = (JD + 0.5 - math.floor(JD + 0.5)) * 24
+    
+    return Y, M, D, UT
 
 
 def dayOfYearToMonthDay(year, dayOfYear):
@@ -121,7 +159,7 @@ def fracDaytoHMS(frac):
     return hours, minutes, seconds
 
 
-def timeconverter(T, input_scale, output_scale):
+def timeconverter(T, input_scale, output_scale, unit="sec"):
     """
     Converts time between different time scales, including UTC, UT1, TT, and TAI.
     It takes an input time and converts it to the specified output time format.
@@ -134,6 +172,11 @@ def timeconverter(T, input_scale, output_scale):
     Returns:
         float: Time converted to the specified output time scale
     """
+
+    if unit in ["hour", "hours", "hr", "hrs"]:
+        T *= 3600
+    elif unit in ["d", "day", "days", "frac", "fraction"]:
+        T *= 86400
 
     # Convert inputs to uppercase to make case-insensitive
     input_scale = input_scale.upper()
@@ -177,4 +220,110 @@ def timeconverter(T, input_scale, output_scale):
         T -= 64.184  # Convert from TT to UTC
         T += 32.0  # Convert from UTC to TAI
 
+    if unit in ["hour", "hours", "hr", "hrs"]:
+        T /= 3600
+    elif unit in ["d", "day", "days", "frac", "fraction"]:
+        T /= 86400
+
     return T
+
+
+def JDtoMJD(JD):
+    return JD - 2400000.5
+
+
+def MDJtoJD(MJD):
+    return MJD + 2400000.5
+
+
+def JDtoGMST(JD, longitude):
+    """
+    Converts Julian Date to Greenwich Mean Sidereal Time (GMST) and Local Mean Sidereal Time (LMST).
+    
+    Parameters:
+        JD (float): Julian Date
+        longitude (float): Geographic longitude of the observation site (in degrees)
+        
+    Returns:
+        tuple: (GMST, LMST)
+            GMST (float): Greenwich Mean Sidereal Time (in degrees)
+            LMST (float): Local Mean Sidereal Time (in degrees)
+    """
+    # Julian centuries from J2000.0
+    T = (JD - 2451545.) / 36525.
+    
+
+    GMST = (67310.54841 
+            + (876600 * 3600 + 8640184.812866) * T 
+            + 0.093104 * T**2 
+            - 6.2e-6 * T**3)
+    
+    # Convert GMST to degrees (range [0, 360])
+    GMST = np.mod(GMST * 360.0 / 86400.0, 360.0)
+    
+    # Calculate LMST (Local Mean Sidereal Time)
+    LMST = GMST + longitude
+    
+    # Ensure LMST is in the range [0, 360]
+    LMST = np.mod(LMST, 360.0)
+    
+    return GMST, LMST
+
+
+def is_leap_year(year):
+    """
+    Determines if a given year is a leap year.
+
+    Parameters:
+        year (int): Year in question (e.g., 2024)
+
+    Returns:
+        bool: True if leap year, False otherwise
+    """
+    return (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0))
+
+
+def dayOfYearToMonthDay(year, day_of_year):
+    """
+    Converts the day of the year to the corresponding month and day.
+    
+    Parameters:
+        year (int): Year in question (e.g., 2024)
+        day_of_year (float): Day of the year (1 through 365 or 366)
+    
+    Returns:
+        tuple: (month, day, frac)
+            month (int): Month (1 through 12)
+            day (int): Day of the month (1 through 31)
+            frac (float): Fraction of the day
+    """
+    
+    # Define days in each month for leap and regular years
+    if is_leap_year(year):
+        days_in_month = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]  # Leap year
+    else:
+        days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]  # Regular year
+
+    # Initialize the month
+    month = 1
+
+    # Subtract days in each month until the correct month is found
+    while day_of_year > days_in_month[month - 1]:
+        day_of_year -= days_in_month[month - 1]
+        month += 1
+
+    # The remaining day_of_year is the day of the month
+    day = int(day_of_year)  # Integer part is the day
+    frac = day_of_year - day  # Fractional part of the day
+    
+    return month, day, frac
+
+
+
+
+
+
+
+
+
+
