@@ -2,6 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import astrotools as at
 import scipy as sc
+import pandas as pd
+import mplcursors
+
 from mpl_toolkits.mplot3d import Axes3D
 
 
@@ -87,6 +90,71 @@ ax.set_zlabel("z [km]")
 ax.set_aspect('equal')
 ax.set_title("ISS Orbit")
 
-plt.show()
 
+df = pd.read_csv('GPS meas.csv')
+df['time'] = pd.to_datetime(df['time'])
+
+# sort by x, y, z
+xyz_order = {'x': 1, 'y': 2, 'z': 3}
+df['xyz_order'] = df['ECEF'].map(xyz_order)
+df = df.sort_values(by=['time', 'xyz_order'])
+df = df.drop(columns=['xyz_order'])
+
+# extract x, y, z positions and velocities
+sat = {}
+sat['r_itrf'] = np.array([df[df['ECEF'] == 'x']['position'].values,
+                          df[df['ECEF'] == 'y']['position'].values,
+                          df[df['ECEF'] == 'z']['position'].values])
+sat['v_itrf'] = np.array([df[df['ECEF'] == 'x']['velocity'].values,
+                          df[df['ECEF'] == 'y']['velocity'].values,
+                          df[df['ECEF'] == 'z']['velocity'].values])
+clock_bias = np.array(df['clock'].values[0:-1:3])
+
+date = df[df['ECEF'] == 'x']['time']
+
+# Extract year, month, and day with fractional time
+year = date.dt.year.to_numpy()
+month = date.dt.month.to_numpy()
+day = date.dt.day.to_numpy()
+frac = ((date.dt.hour + date.dt.minute / 60 + date.dt.second / 3600) / 24).to_numpy()
+
+CalUTtoJD_vec = np.vectorize(at.CalUTtoJD)
+JD = CalUTtoJD_vec(year,month,day,at.timeconverter(frac*24,"UTC","UT","hr"))
+GMST, _ = at.JDtoGMST(JD,0)
+print(GMST)
+
+
+EOP2 = at.parseEOPFile("./astrotools/EOP2long.txt")
+sat['r_j2000'] = np.zeros_like(sat['r_itrf'])
+sat['v_j2000'] = np.zeros_like(sat['v_itrf'])
+for i in range(len(sat['r_itrf'][0])):
+    R_earthrot = at.rot(GMST[i], 3, "degrees").T
+    R_nutation = at.RotNutation(JD[i], "UT1").T
+    R_precession = at.RotPrecession(JD[i], "UT1").T
+    R_polarmotion = at.RotPolarMotion(JD[i], EOP2).T
+    full_rot = R_precession * R_nutation * R_earthrot * R_polarmotion
+    sat['r_j2000'][:,i] = full_rot @ sat['r_itrf'][:,i]
+    sat['v_j2000'][:,i] = full_rot @ sat['v_itrf'][:,i]
+
+# temp remove outliers
+sat['r_j2000'][np.abs(sat['r_j2000']) > 1e8] = 0
+
+# plt.plot(JD,sat['r_j2000'][0,:],label="x")
+# plt.plot(JD,sat['r_j2000'][1,:],label="y")
+# plt.plot(JD,sat['r_j2000'][2,:],label="z")
+ax = plt.figure().add_subplot(projection="3d")
+ax.plot(sat['r_j2000'][0],sat['r_j2000'][1],sat['r_j2000'][2])
+ax = at.plotsphere(ax,earth.SemimajorAxis)
+ax.set_xlabel("x [km]")
+ax.set_ylabel("y [km]")
+ax.set_zlabel("z [km]")
+ax.set_aspect('equal')
+
+
+# Enable hover functionality
+cursor = mplcursors.cursor(hover=True)
+cursor.connect("add", lambda sel: sel.annotation.set_text(f"x: {sel.target[0]:.2f}, y: {sel.target[1]:.2f}"))
+
+
+plt.show()
 

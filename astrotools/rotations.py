@@ -364,11 +364,18 @@ def parseEOPFile(filename):
     with open(filename, 'r') as file:
         for line in file:
             # Skip lines starting with '$' or 'EOP2=' or empty lines
-            if line.startswith('$') or line.startswith('EOP2=') or line.strip() == '':
+            if line.startswith(' $') or line.startswith(' EOP2=') or line.strip() == '':
+                continue
+            
+            # Only keep part before the '$' symbol
+            line = line.split('$')[0].strip()
+
+            # Skip empty lines after splitting
+            if not line:
                 continue
             
             # Parse the line and extract the data
-            data = list(map(float, line.split(',')))
+            data = [float(val) for val in line.split(',') if val.strip()]
             
             # Unpack the extracted data
             mjd, pmx, pmy, tai_ut1, pmx_sig, pmy_sig, ut_sig, utpm_corr1, utpm_corr2, utpm_corr3, dx, dy, dx_sig, dy_sig, corr = data
@@ -430,7 +437,7 @@ def RotPrecession(JD, inputtime="TT"):
     T = (JD - 2451545.0)/36525.0 * (100. * 365.25 * 24. * 60. * 60.)
 
     # Convert to terrestrial time
-    T = timeconverter(T, "inputtime", "TT")
+    T = timeconverter(T, inputtime, "TT")
     T /= (100. * 365.25 * 24. * 60. * 60.) # convert back to centuries
 
     # Compute precession angles
