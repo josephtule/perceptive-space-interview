@@ -8,6 +8,7 @@ import mplcursors
 from mpl_toolkits.mplot3d import Axes3D
 
 earth = at.MyWGS84("km")
+c = 299792458 * 1e-3 # speed of light in km/s
 
 # import data
 df = pd.read_csv('GPS meas.csv')
@@ -40,7 +41,7 @@ sat['r_itrf'] = sat['r_itrf'][:, keep_ind]
 sat['v_itrf'] = sat['v_itrf'][:, keep_ind]
 sat['r_mag'] = sat['r_mag'][keep_ind]
 date = date[keep_ind]
-clock_bias = clock_bias[keep_ind]
+clock_bias = clock_bias[keep_ind] * 1e-6
 
 # Extract year, month, and day with fractional time
 year = date.dt.year.to_numpy()
@@ -91,19 +92,23 @@ print(np.where(day_skip))
 
 ## Extended Kalman filter parameters
 # Initialize process noise covariance matrix (Q)
-q1 = 1e-4
-q2 = 1e-6
+q1 = 1e-5
+q2 = 1e-7
 Q = np.diag([q1, q1, q1, q2, q2, q2])
 
 # Initialize measurement noise covariance matrix (R)
-r1 = 1e-4
-r2 = 1e-8
+# assume 10 meter accuracy in gps
+r1 = (10. * 1e-3)**2
+# r1 = 1e-4
+# assume .5 meter/sec accuracy in gps
+r2 = (0.1 * 1e-3)**2
+# r2 = 1e-8
 R = np.diag([r1, r1, r1, r2, r2, r2])
 
 # Initialize state covariance matrix (P)
 # P_est = np.eye(6)
-p_var = 10
-v_var = .05
+p_var = 1
+v_var = 0.1
 P_est = np.diag([p_var, p_var, p_var, v_var, v_var, v_var])
 
 
@@ -120,40 +125,26 @@ dt_min = np.min(dt)
 # gravity parameters
 max_degree = 4
 earth.read_egm('./astrotools/EGM2008_to2190_TideFree.txt', max_degree)
+Cd = 2.2
+sarea = 10 / (1e3)**2 # surface area in km^2
 
 
 for k in range(N-1):
     # Prediction step
     r = np.linalg.norm(x_est[0:3, k])  # Compute the magnitude of the position vector
 
-    # def f(t, x):
-    #     r_vec = x[0:3]
-    #     r = np.linalg.norm(r_vec)
-        
-    #     # Gravitational acceleration due to Earth's gravity (with J2 perturbation)
-    #     J2 = 1.08263e-3  # J2 coefficient
-    #     Re = earth.SemimajorAxis  # Earth's radius in km
-    #     z2 = r_vec[2]**2
-    #     r2 = r**2
-        
-    #     # Standard two-body gravitational force
-    #     a_grav = -earth.mu / r**3 * r_vec
-        
-    #     # J2 perturbation acceleration
-    #     a_J2 = (1.5 * J2 * earth.mu * Re**2 / r**5) * r_vec * (5 * z2 / r2 - 1)
-    #     a_J2[2] = (1.5 * J2 * earth.mu * Re**2 / r**5) * r_vec[2] * (5 * z2 / r2 - 3)
-
-    #     return np.concatenate((x[3:6], a_grav + a_J2))  # Return velocity and total acceleration
-
     f = lambda t,x: at.orbit_ode(t, x, 
                                  earth.mu, gravity="J", 
                                  max_degree=max_degree, Re=earth.SemimajorAxis, 
-                                 C=earth.C, S=earth.S, GMST=GMST[k], J=earth.J)
+                                 C=earth.C, S=earth.S, GMST=GMST[k], J=earth.J,
+                                 atmosphere="simple",Cd=Cd,sarea=sarea, omega=earth.omega)
 
     if dt[k] > dt_min * 1e1:
-        ns = 100
+        ns = 1500
+    elif dt[k] > dt_min * 3:
+        ns = 36
     else:
-        ns = 12
+        ns = 18
     _, x_pred = at.rk4_substeps(f, 0, x_est[:, k], dt[k], num_substeps=ns)
 
     # Jacobian (F_k) for state transition, initialization
@@ -175,8 +166,7 @@ for k in range(N-1):
     K = P_pred @ H.T @ np.linalg.inv(S)  # Kalman gain
 
     # Measurement update
-    z_k = np.concatenate((sat['r_j2000'][:,k+1], sat['v_j2000'][:,k+1]))
-
+    z_k = np.concatenate((sat['r_j2000'][:,k+1], sat['v_j2000'][:,k+1]))    
     innovation = z_k - H @ x_pred
 
     x_est[:,k+1] = x_pred + K @ innovation # Update state estimate
@@ -203,8 +193,75 @@ axes[1].plot(JD, (x_est[3:6,:] - sat['v_j2000'][:,:]).T)
 
 plt.figure()
 E = at.orbit_energy(sat['r_j2000'], sat['v_j2000'], earth.mu)
-E_est = at.orbit_energy(x_est[0:3,:], x_est[4:6,:], earth.mu)
+E_est = at.orbit_energy(x_est[0:3,:], x_est[3:6,:], earth.mu)
 plt.plot(JD,E)
 plt.plot(JD,E_est)
 
+
+v_res = np.linalg.norm(x_est[3:6,:] - sat['v_j2000'], axis=0)
+
+# v_threshold = 0.05  # Threshold for velocity residuals in km/s
+v_threshold = np.mean(v_res) + 1.25 * np.std(v_res)
+# Initialize arrays to store detection data
+man_detect = np.zeros(N, dtype=bool)
+
+# Loop through the time steps separately for maneuver detection
+for k in range(N):
+    if v_res[k] > v_threshold:
+        man_detect[k] = True
+
+# Find indices where maneuvers were detected
+maneuver_indices_velocity = np.where(man_detect == True)[0]
+print("Maneuvers detected by velocity residuals at time steps:", maneuver_indices_velocity)
+
+plt.figure()
+plt.plot(JD, v_res, label="Velocity Residuals")
+plt.axhline(y=v_threshold, color='r', linestyle='--', label="Maneuver Threshold")
+plt.xlabel("Julian Date")
+plt.ylabel("Velocity Residual (km/s)")
+plt.legend()
+
+
+JD_start = JD[-1] + dt[-1] / 86400
+JD_end =  JD_start + 3
+dt_prop = 1800 # propagation step size of 30 minutes
+N_prop = int((JD_end - JD_start)*86400/dt_prop)
+JD_prop = np.linspace(JD_start, JD_end, N_prop)
+dt_prop = np.diff(JD_prop) * 86400
+GMST_prop, _ = at.JDtoGMST(JD_prop,0)
+
+x_prop = np.zeros((6,N_prop))
+x_prop[:,0] = x_est[:,-1]
+
+for k in range(N_prop-1):
+    # propagate at 60 second intervals, sample at 30 minutes
+    f = lambda t,x: at.orbit_ode(t, x, 
+                                 earth.mu, gravity="J", 
+                                 max_degree=max_degree, Re=earth.SemimajorAxis, 
+                                 C=earth.C, S=earth.S, GMST=GMST_prop[k], J=earth.J,
+                                 atmosphere="simple",Cd=Cd,sarea=sarea, omega=earth.omega)
+    _, x_prop[:,k+1] = at.rk4_substeps(f, 0, x_prop[:,k], dt_prop[k], num_substeps=30) 
+
+
+r_mag_prop = np.linalg.norm(x_prop[:3], axis=0)
+v_mag_prop = np.linalg.norm(x_prop[3:], axis=0)
+
+plt.figure()
+plt.plot(JD_prop,r_mag_prop, label='Propagated')
+plt.plot(JD,np.linalg.norm(sat['r_j2000'], axis=0), label='Measurements')
+plt.plot(JD,np.linalg.norm(x_est[:3], axis=0), label="Estimate")
+plt.legend()
+
+
+
 plt.show()
+
+
+
+
+
+
+
+
+
+

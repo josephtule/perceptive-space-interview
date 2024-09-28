@@ -211,7 +211,8 @@ def parseTLE(filename, mu, millenium):
     return sat
 
 
-def orbit_ode(t, x, mu, gravity="newton", perturbations=None, Re=None, J=None, C=None, S=None, GMST=None, max_degree=None):
+def orbit_ode(t, x, mu, gravity="newton", atmosphere=None, Cd=None, omega=None, sarea=None, 
+              Re=None, J=None, C=None, S=None, GMST=None, max_degree=None):
     """
     Computes the derivative of the state vector (position and velocity) of 
     a point mass orbiting a central body.
@@ -240,12 +241,69 @@ def orbit_ode(t, x, mu, gravity="newton", perturbations=None, Re=None, J=None, C
     elif gravity.lower() in ['sphericalharmonic','sphericalharmonic','sphharmonic','sphharmonics','sphharm','sphharmon']:
         dxdt[3:6] += rot(GMST, 3, "degrees") @ gravity_sphharm(x[0:3], Re, mu, max_degree, C, S)
 
-
+    if atmosphere.lower() in ['simple']:
+        dxdt[3:6] += pert_atmosphere(x[:3],x[3:],Cd,sarea,Re,omega,atmosphere)
     return dxdt
 
 
+def pert_atmosphere(r,v,Cd,sarea,Re,omega,model):
+    alt = np.linalg.norm(r) - Re
+    rho = density_atmosphere(alt)
+    Omega = np.array([0.,0.,omega])
+    v_rel =  v - np.cross(Omega,r)
+    
+    return - 1./2. * Cd * sarea * rho * np.linalg.norm(v_rel) * v_rel / np.linalg.norm(v)
 
-
+def density_atmosphere(altitude):
+    """
+    Calculates the atmospheric density at a given altitude using an exponential model.
+    
+    Parameters:
+    altitude (float): Altitude in kilometers.
+    
+    Returns:
+    float: Atmospheric density in kg/m^3.
+    """
+    # Define atmospheric layers and scale heights (km) based on altitude ranges
+    # Reference density values at the top of each layer (kg/m^3)
+    layers = [
+        (0, 25, 1.225, 7.249),   # Sea level to 25 km
+        (25, 30, 3.899e-2, 6.349),
+        (30, 40, 1.774e-2, 6.682),
+        (40, 50, 3.972e-3, 7.554),
+        (50, 60, 1.057e-3, 8.382),
+        (60, 70, 3.206e-4, 7.714),
+        (70, 80, 8.770e-5, 6.549),
+        (80, 90, 1.905e-5, 5.799),
+        (90, 100, 3.396e-6, 5.382),
+        (100, 110, 5.297e-7, 5.877),
+        (110, 120, 9.661e-8, 7.263),
+        (120, 130, 2.438e-8, 9.473),
+        (130, 140, 8.484e-9, 12.636),
+        (140, 150, 3.845e-9, 16.149),
+        (150, 180, 2.070e-9, 22.523),
+        (180, 200, 5.464e-10, 29.740),
+        (200, 250, 2.789e-10, 37.105),
+        (250, 300, 7.248e-11, 45.546),
+        (300, 400, 2.418e-11, 53.628),
+        (400, 500, 9.158e-12, 53.298),
+        (500, 600, 3.725e-12, 58.515),
+        (600, 700, 1.585e-12, 60.828),
+        (700, 800, 6.967e-13, 63.822),
+        (800, 900, 3.614e-13, 71.835),
+        (900, 1000, 1.170e-13, 88.667)
+    ]
+    
+    # Find the correct atmospheric layer for the given altitude
+    for layer in layers:
+        h_min, h_max, rho_0, H = layer
+        if h_min <= altitude < h_max:
+            # Apply the exponential density model
+            rho = rho_0 * np.exp(-(altitude - h_min) / H)
+            return rho
+    
+    # Return zero density for altitudes above 1000 km
+    return 0.0
 
 def orbit_energy(r, v, mu):
     r = np.linalg.norm(r, axis=0)
