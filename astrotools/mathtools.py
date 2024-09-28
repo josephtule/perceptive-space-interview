@@ -40,3 +40,54 @@ def vectorangle(r1, r2, degorrad="degrees"):
         angle = np.rad2deg(angle)
 
     return angle
+
+
+
+def rk4_step(f, t, x, dt):
+    """
+    Perform a single Runge-Kutta 4th order (RK4) step.
+    
+    Parameters:
+    f  -- the function that defines the system's differential equations
+    t  -- current time
+    x  -- current state vector
+    dt -- time step
+
+    Returns:
+    tnew -- updated time
+    xnew -- updated state vector
+    """
+    k1 = f(t, x)
+    k2 = f(t + dt / 2, x + dt * k1 / 2)
+    k3 = f(t + dt / 2, x + dt * k2 / 2)
+    k4 = f(t + dt, x + dt * k3)
+    
+    xnew = x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+    tnew = t + dt
+    
+    return tnew, xnew
+
+
+def rk4_substeps(f, t, x, dt, num_substeps=10):
+    sub_dt = dt / num_substeps  # Subdivide the time step
+    for _ in range(num_substeps):
+        t, x = rk4_step(f, t, x, sub_dt)
+    return t, x
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,3 +1,6 @@
+import numpy as np
+from astrotools import norm_factor
+
 class MyWGS84:
     """
     Generates default values for Earth using the WGS84 ellipsoid model.
@@ -31,6 +34,7 @@ class MyWGS84:
         self.SurfaceArea = 5.100656217240886e+14 # surface area of the Earth [m^2]
         self.Volume = 1.083207319801408e+21 # volume of the Earth [m^3]
 
+        
         # Convert to kilometers if required
         if self.units in ["km", "kilometers", "kilometer"]:
             self.mu = self.mu / 1e3**3  # Convert mu to km^3/s^2
@@ -39,3 +43,50 @@ class MyWGS84:
             self.MeanRadius = self.MeanRadius / 1e3
             self.SurfaceArea = self.SurfaceArea / 1e3**2
             self.Volume = self.Volume / 1e3**3
+            
+    def read_egm(self, filepath, max_deg):
+        """
+        Reads the EGM2008 gravity model file and assigns the C and S coefficients 
+        along with their uncertainties up to max_deg as attributes of the class.
+
+        Parameters:
+        filepath (str)   -- Path to the EGM2008 file
+        max_deg (int)    -- Maximum degree for the spherical harmonics
+
+        Attributes:
+        C (np.array)     -- C coefficients array (max_deg+1, max_deg+1)
+        S (np.array)     -- S coefficients array (max_deg+1, max_deg+1)
+        C_uncert (np.array) -- Uncertainty in C coefficients (max_deg+1, max_deg+1)
+        S_uncert (np.array) -- Uncertainty in S coefficients (max_deg+1, max_deg+1)
+        """
+        k = 1
+        self.C = np.zeros((max_deg + k, max_deg + k))       # Initialize C array
+        self.S = np.zeros((max_deg + k, max_deg + k))       # Initialize S array
+        self.C_uncert = np.zeros((max_deg + k, max_deg + k))  # Initialize uncertainty for C
+        self.S_uncert = np.zeros((max_deg + k, max_deg + k))  # Initialize uncertainty for S
+        self.J = np.zeros((max_deg+k,1))
+        with open(filepath, 'r') as f:
+            for line in f:
+                # Split the line into fields based on spaces
+                data = line.split()
+                n = int(data[0])  # Degree
+                m = int(data[1])  # Order
+
+                if n > max_deg:  # Stop if the degree exceeds the max degree
+                    break
+
+                # Extract values, replace Fortran 'D' with Python 'E' for exponents
+                C_value = float(data[2].replace('D', 'E'))
+                S_value = float(data[3].replace('D', 'E'))
+                C_uncert_value = float(data[4].replace('D', 'E'))
+                S_uncert_value = float(data[5].replace('D', 'E'))
+
+                # Assign values to the arrays
+                self.C[n, m] = C_value
+                self.S[n, m] = S_value
+                self.C_uncert[n, m] = C_uncert_value
+                self.S_uncert[n, m] = S_uncert_value
+                
+        
+            for i in range(max_deg+k):
+                self.J[i] = self.C[i,0] * norm_factor(i,0)
