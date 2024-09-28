@@ -4,7 +4,6 @@ import astrotools as at
 import scipy as sc
 import pandas as pd
 import mplcursors
-
 from mpl_toolkits.mplot3d import Axes3D
 
 earth = at.MyWGS84("km")
@@ -43,6 +42,8 @@ sat['r_mag'] = sat['r_mag'][keep_ind]
 date = date[keep_ind]
 clock_bias = clock_bias[keep_ind] * 1e-6
 
+
+
 # Extract year, month, and day with fractional time
 year = date.dt.year.to_numpy()
 month = date.dt.month.to_numpy()
@@ -52,7 +53,18 @@ frac = ((date.dt.hour + date.dt.minute / 60 + date.dt.second / 3600) / 24).to_nu
 CalUTtoJD_vec = np.vectorize(at.CalUTtoJD)
 JD = CalUTtoJD_vec(year,month,day,frac*24)
 GMST, _ = at.JDtoGMST(JD,0)
-# print(GMST)
+N = len(JD)
+dt = np.diff(JD) * 86400
+day_skip = dt > dt[0] * 5
+# print(np.where(day_skip))
+
+# clock bias direction
+p_corr = c * clock_bias
+clock_drift = np.diff(clock_bias) / dt
+for i in range(N):
+    sat['r_itrf'][:,i] = (np.linalg.norm(sat['r_itrf'][:,i]) - (c * clock_bias[i])) * at.normalize(sat['r_itrf'][:,i])
+    if i > 0:
+        sat['v_itrf'][:,i] = sat['v_itrf'][:,i] - c * clock_drift[i-1] * at.normalize(sat['r_itrf'][:,i])
 
 
 EOP2 = at.parseEOPFile("./astrotools/EOP2long.txt")
@@ -73,16 +85,11 @@ cursor = mplcursors.cursor(hover=True)
 cursor.connect("add", lambda sel: sel.annotation.set_text(f"x: {sel.target[0]:.2f}, y: {sel.target[1]:.2f}"))
 
 
-print("norms:")
-print(sat['r_mag'][:6])
-
 
 
 
 # Simulation and Filtering
-dt = np.diff(JD) * 86400
-day_skip = dt > dt[0] * 5
-print(np.where(day_skip))
+
 
 
 # plt.figure()
@@ -113,18 +120,14 @@ P_est = np.diag([p_var, p_var, p_var, v_var, v_var, v_var])
 
 
 ## Initialize estimation array
-N = sat['r_mag'].shape[0]
 x_est = np.zeros([6, N]);  
 x_est[:, 0] = np.concatenate((sat['r_j2000'][:,0], sat['v_j2000'][:,0]))
-
-print("cool")
-
 dt_min = np.min(dt)
 
 
 # gravity parameters
 max_degree = 4
-earth.read_egm('./astrotools/EGM2008_to2190_TideFree.txt', max_degree)
+earth.read_egm('./astrotools/EGM2008_to360.txt', max_degree)
 Cd = 2.2
 sarea = 10 / (1e3)**2 # surface area in km^2
 

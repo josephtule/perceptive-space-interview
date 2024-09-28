@@ -75,9 +75,20 @@ def rk4_substeps(f, t, x, dt, num_substeps=10):
     return t, x
 
 
+def normalize(x):
+    x_mag = np.linalg.norm(x, axis=0)
+    if x_mag < eps(1.0):
+        return x
+    else:
+        return x / x_mag
+    
 
-
-
+def eps(x):
+    """
+    Returns the machine epsilon scaled to the magnitude of x,
+    similar to MATLAB's eps(x).
+    """
+    return np.finfo(float).eps * np.abs(float(x))
 
 
 
