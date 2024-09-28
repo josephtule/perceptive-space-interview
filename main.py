@@ -202,7 +202,6 @@ plt.plot(JD,E_est)
 
 
 v_res = np.linalg.norm(x_est[3:6,:] - sat['v_j2000'], axis=0)
-
 # v_threshold = 0.05  # Threshold for velocity residuals in km/s
 v_threshold = np.mean(v_res) + 1.25 * np.std(v_res)
 # Initialize arrays to store detection data
@@ -260,7 +259,57 @@ plt.legend()
 plt.show()
 
 
+def compute_STM(mu, r_vec, delta_t):
+        """
+        Compute the Jacobian matrix (state transition matrix) for an orbit with gravitational perturbations.
+        
+        Parameters:
+        mu (float): Gravitational parameter (GM of the central body).
+        r_vec (numpy array): Position vector (x, y, z) in Cartesian coordinates.
+        delta_t (float): Time step.
+        
+        Returns:
+        numpy array: The Jacobian matrix for the orbital dynamics.
+        """
+        
+        # Extract the position vector components
+        x, y, z = r_vec
+        
+        # Compute the magnitude of the position vector (r_0)
+        r0 = np.linalg.norm(r_vec)
+        r0_2 = r0 ** 2
+        r0_3 = r0 ** 3
+        r0_5 = r0 ** 5
 
+        # Compute the common term for each element
+        factor = 3 * mu * delta_t**2 / (2 * r0_5)
+        mu_by_r0_3 = mu * delta_t**2 / (2 * r0_3)
+
+        # Construct the 6x6 Jacobian matrix
+        F = np.zeros((6, 6))
+        
+        # Upper 3x3 block (position-related)
+        F[0, 0] = 1 + factor * x**2
+        F[0, 1] = factor * x * y
+        F[0, 2] = factor * x * z
+
+        F[1, 0] = factor * x * y
+        F[1, 1] = 1 + factor * y**2
+        F[1, 2] = factor * y * z
+
+        F[2, 0] = factor * x * z
+        F[2, 1] = factor * y * z
+        F[2, 2] = 1 + factor * z**2
+
+        # Lower 3x3 block (velocity-related)
+        F[3, 3] = F[4, 4] = F[5, 5] = 1.0
+
+        # Upper-right block (velocity-related effects on position)
+        F[0, 3] = F[1, 4] = F[2, 5] = delta_t
+
+        return F
+
+    # STM = compute_STM(earth.mu, x_est[:3,k], dt[k])
 
 
 
