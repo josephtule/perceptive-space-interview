@@ -239,7 +239,9 @@ def orbit_ode(t, x, mu, gravity="newton", atmosphere=None, Cd=None, omega=None, 
         dxdt[3:6] = gravity_pointmass(x[0:3], mu)
         dxdt[3:6] += gravity_zonal(x[0:3], Re, mu, J, max_degree)
     elif gravity.lower() in ['sphericalharmonic','sphericalharmonic','sphharmonic','sphharmonics','sphharm','sphharmon']:
-        dxdt[3:6] += rot(GMST, 3, "degrees") @ gravity_sphharm(x[0:3], Re, mu, max_degree, C, S)
+        R = rot(GMST+(t*omega)*180/np.pi, 3, "degrees") # rotation matrix from ECI to ECEF
+        p = R @ x[:3] # rotate ECI state vector into ECI to use spherical harmonics
+        dxdt[3:6] += R.T @ gravity_sphharm(p, Re, mu, max_degree, C, S) # rotate back to ECI
 
     if atmosphere.lower() in ['simple']:
         dxdt[3:6] += pert_atmosphere(x[:3],x[3:],Cd,sarea,Re,omega,atmosphere)
